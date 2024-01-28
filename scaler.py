@@ -4,62 +4,118 @@ import time
 
 
 MONITOR_TIME = 20 # monitor response times over 20 seconds
-SCALE_UP_THRESHOLD = 10 # add more resources if response time > 10 seconds
-SCALE_DOWN_THRESHOLD = 5 # decrease resources if respone time < 5 seconds
-
-'''
-looking at the compose file
-cpu: 0.25, memory: 256M
-
-from the cybera dashboard our machines specs are:
-Flavor Name
-2gb ram, 2vcpu, 20gb disk
-
-by cpu: 2/0.25 = 8 replicas
-by memory: 2000/256 = 7.8 replicas, we can round down cuz other overhead like OS so 7 replicas max
-
-'''
+SCALE_UP_THRESHOLD = 20 # add more resources if response time > 1 seconds
+SCALE_DOWN_THRESHOLD = 10 # decrease resources if response time < 10 seconds
 MAX_REPLICAS = 7
 MIN_REPLICAS = 1
-web_microservice = "http://10.2.7.79:8000/"
-service_id = "tjevoqetz0nd" # from sudo docker service ls we can see the ids
+web_service_url = "http://10.2.7.79:8000/"
+web_service_id = "tjevoqetz0nd" # from sudo docker service ls we can see the ids
+
+class DockerClient:
+    def __init__(self):
+        self.client = docker.from_env()
+
+    # returns service object
+    def get_service(self, service_id):
+        return self.client.services.get(service_id)
 
 
-client = docker.from_env()
-# source: https://docker-py.readthedocs.io/en/stable/services.html
-service = client.services.get(service_id) # returns type service
+class Service:
+    def __init__(self, service_id, service_url, docker_client):
+        self.docker_client = docker_client
+        # service object as decescribed by  https://docker-py.readthedocs.io/en/stable/services.html
+        self.service_id = service_id
+        self.service = self.docker_client.get_service(service_id) 
+        self.name = self.service.name
+        self.service_url = service_url
 
-def get_average_response_time():
+
+    # we need to always get the updated service. when we make the changes stuff like the version number might change
+    # we will get a docker api error if the service is not up to date
+    def update(self):
+        self.service = self.docker_client.get_service(self.service_id)
+
+    def get_current_replicas(self):
+        # attrs returns a dictionary. Follow the nested keys to get the replicas
+        self.update()
+        return self.service.attrs["Spec"]["Mode"]["Replicated"]["Replicas"]
+
+
+    def scale(self, num_replicas):
+        self.update()
+        self.service.scale(num_replicas)
+
+    def get_url(self):
+        self.update()
+        return self.service_url
     
-    start_time = time.time()
-    response_times = []
+    def get_name(self):
+        self.update()
+        return self.name
 
-    # while time elapsed is less than 20 seconds
-    while time.time() - start_time < MONITOR_TIME:
-        t0 = time.time()
-        requests.get(web_microservice)
-        t1 = time.time()
-        response_time = t1 - t0
-        response_times.append(response_time)
-        print(response_time)
+class Autoscaler:
+    def __init__(self, service, monitor_time, scale_up_threshold, scale_down_threshold, max_replicas, min_replicas):
+        self.service = service
+        self.monitor_time = monitor_time
+        self.scale_up_threshold = scale_up_threshold
+        self.scale_down_threshold = scale_down_threshold
+        self.max_replicas = max_replicas
+        self.min_replicas = min_replicas
+
+
+    def get_average_response_time(self):
+        print("Getting average response time...")
+        start_time = time.time()
+        response_times = []
+
+        # while time elapsed is less than 20 seconds
+        while time.time() - start_time < self.monitor_time:
+            t0 = time.time()
+            requests.get(self.service.get_url())
+            t1 = time.time()
+            response_time = t1 - t0
+            response_times.append(response_time)
+            print(response_time)
     
-    average_response_time = sum(response_times) / len(response_times)
+            average_response_time = sum(response_times) / len(response_times)
 
-    print(f"Average Response Time over {MONITOR_TIME} seconds: {average_response_time}")
-    return average_response_time
+        # average_response_time = 1
+        print(f"Average Response Time over {MONITOR_TIME} seconds: {average_response_time}")
+        return average_response_time
 
+    def perform_scaling(self):
+        average_response_time = self.get_average_response_time()
+        current_replicas = self.service.get_current_replicas()
 
-# TODO: scale factor?? i guess if time is like double the threshold we can scale twice??
-def scale(num_replicas):
-    service.scale(num_replicas) # scale the webapp_web service
-    return
+            # we want to scale up and we can
+        if average_response_time > self.scale_up_threshold and current_replicas < self.max_replicas:
+            new_replicas = current_replicas + 1
+            self.service.scale(new_replicas)
+            print(f'Scaled up {self.service.get_name()} to {new_replicas} replicas.')
+        
+        # we want to scale up but we are at max
+        elif average_response_time > self.scale_up_threshold and current_replicas == self.max_replicas:
+            print("Reachec max replicas can't scale up")
 
-def main():
-    return
-    
+        # we want to scale down and we can
+        elif average_response_time < self.scale_down_threshold and current_replicas > self.min_replicas:
+            new_replicas = current_replicas - 1
+            self.service.scale(new_replicas)
+            print(f'Scaled down {self.service.get_name()} to {new_replicas} replicas.')
 
+        elif average_response_time < self.scale_down_threshold and current_replicas == self.min_replicas:
+            print("Reached min replicas cant scale down")
+        
+        else:
+            print(f'Did not scale {self.service.get_name()}. Response time within threshold')
 
-get_average_response_time()
+if __name__ == '__main__':
+    docker_client = DockerClient()
+    web_service = Service(web_service_id, web_service_url, docker_client) 
+    print("Service url: ", web_service.get_url())
+    autoscaler = Autoscaler(web_service, MONITOR_TIME, SCALE_UP_THRESHOLD, SCALE_DOWN_THRESHOLD, MAX_REPLICAS, MIN_REPLICAS)
+    while True:
+        autoscaler.perform_scaling()
+        time.sleep(5) # forthe scaling to finish
 
-# if __name__ == '__main__':
     
