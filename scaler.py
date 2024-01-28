@@ -4,9 +4,9 @@ import time
 
 
 MONITOR_TIME = 20 # monitor response times over 20 seconds
-SCALE_UP_THRESHOLD = 20 # add more resources if response time > 1 seconds
+SCALE_UP_THRESHOLD = 20 # add more resources if response time > 20 seconds
 SCALE_DOWN_THRESHOLD = 10 # decrease resources if response time < 10 seconds
-MAX_REPLICAS = 7
+MAX_REPLICAS = 10
 MIN_REPLICAS = 1
 web_service_url = "http://10.2.7.79:8000/"
 web_service_id = "tjevoqetz0nd" # from sudo docker service ls we can see the ids
