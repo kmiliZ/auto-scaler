@@ -1,0 +1,6 @@
+flask
+redis
+locust
+docker
+pandas 
+plotly
