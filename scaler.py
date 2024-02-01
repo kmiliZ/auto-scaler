@@ -94,7 +94,6 @@ class Autoscaler:
 
         # average_response_time = 1
         print(f"Average Response Time over {MONITOR_TIME} seconds: {average_response_time}")
-        redis.lpush('avg_response_t', average_response_time)
         return average_response_time
 
     def perform_scaling(self):
@@ -126,8 +125,10 @@ class Autoscaler:
             print(f'Did not scale {self.service.get_name()}. Response time within threshold')
         
         # for the visualizer
-        redis.lpush('size',new_replicas)
         global tare
+
+        redis.lpush('avg_response_t', average_response_time)
+        redis.lpush('size',new_replicas)
 
         redis.lpush('time_series', time.time()-start_time)
         hits = int(redis.get('hits'))
