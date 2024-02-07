@@ -13,10 +13,10 @@ start_time = time.time()
 app = Flask(__name__)
 
 
-MONITOR_TIME = 20 # monitor response times over 20 seconds
-SCALE_UP_THRESHOLD = 20 # add more resources if response time > 20 seconds
-SCALE_DOWN_THRESHOLD = 10 # decrease resources if response time < 10 seconds
-MAX_REPLICAS = 10
+MONITOR_TIME = 30 # monitor response times over 20 seconds
+SCALE_UP_THRESHOLD = 15 # add more resources if response time > 15 seconds
+SCALE_DOWN_THRESHOLD = 5 # decrease resources if response time < 5 seconds
+MAX_REPLICAS = 15
 MIN_REPLICAS = 1
 web_service_url = "http://10.2.7.79:8000/"
 web_service_id = "tjevoqetz0nd" # from sudo docker service ls we can see the ids
@@ -74,7 +74,6 @@ class Autoscaler:
         self.max_replicas = max_replicas
         self.min_replicas = min_replicas
 
-
     def get_average_response_time(self):
         print("Getting average response time...")
         start_time = time.time()
@@ -83,14 +82,22 @@ class Autoscaler:
         # while time elapsed is less than 20 seconds
         while time.time() - start_time < self.monitor_time:
             t0 = time.time()
-            requests.get(self.service.get_url())
-            t1 = time.time()
-            response_time = t1 - t0
-            response_times.append(response_time)
-            print(response_time)
-        
+
+            try:
+                response = requests.get(self.service.get_url(), timeout=30) 
+                t1 = time.time()
+                response_time = t1 - t0
+                response_times.append(response_time)
+                print(response_time)
+            except requests.exceptions.Timeout:
+                print("Request timed out.")
+                # treat as very long response time
+                return 30
+            except requests.exceptions.RequestException as e:
+                print(f"Request failed: {e}")
+                continue
     
-        average_response_time = sum(response_times) / len(response_times)
+            average_response_time = sum(response_times) / len(response_times)
 
         # average_response_time = 1
         print(f"Average Response Time over {MONITOR_TIME} seconds: {average_response_time}")
@@ -110,7 +117,7 @@ class Autoscaler:
         
         # we want to scale up but we are at max
         elif average_response_time > self.scale_up_threshold and current_replicas == self.max_replicas:
-            print("Reachec max replicas can't scale up")
+            print("Reached max replicas can't scale up")
 
         # we want to scale down and we can
         elif average_response_time < self.scale_down_threshold and current_replicas > self.min_replicas:
