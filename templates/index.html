@@ -13,12 +13,7 @@
     <h1>Real-Time Plots</h1>
     <h2>Auto-scalingCloudMicroservices</h2>
     <div name="charts">
-        <div id="workload-plot">
 
-        </div>
-        <div id="avgResponseTime-plot">
-
-        </div>
         <div id="replicas-plot">
 
         </div>
@@ -27,55 +22,13 @@
 
     <!-- JavaScript to fetch data and update the chart -->
     <script>
-        var data1 = [
+        var data = [
             {
                 x: [],
                 y: [],
                 type: 'bar'
             },
         ];
-        var data2 = [
-            {
-                x: [],
-                y: [],
-                type: 'bar'
-            },
-        ];
-        var data3 = [
-            {
-                x: [],
-                y: [],
-                type: 'bar'
-            },
-        ];
-
-        var layout_workload = {
-            bargap: 0,
-            title: 'Work Load Plot',
-            xaxis: {
-                title: 'Time Passed(seconds)',
-                showgrid: false,
-                zeroline: false
-            },
-            yaxis: {
-                title: 'Work Load(number of requests)',
-                showline: false
-            }
-        };
-
-        var layout_avg_response = {
-            bargap: 0,
-            title: 'Average Response Plot',
-            xaxis: {
-                title: 'Time Passed(seconds)',
-                showgrid: false,
-                zeroline: false
-            },
-            yaxis: {
-                title: 'Average Response Time(seconds)',
-                showline: false
-            }
-        };
 
         var layout_replica = {
             bargap: 0,
@@ -91,9 +44,7 @@
             }
         };
 
-        Plotly.newPlot('workload-plot', data1, layout_workload);
-        Plotly.newPlot('avgResponseTime-plot', data2, layout_avg_response);
-        Plotly.newPlot('replicas-plot', data3, layout_replica);
+        Plotly.newPlot('replicas-plot', data, layout_replica);
 
 
         function requestData() {
@@ -101,26 +52,12 @@
                 .then(response => response.json())
                 .then(data => {
                     const time = data[0].time;
-                    const avgResponseTime = data[0].a;
-                    const load = data[0].l;
                     const replicasCount = data[0].r;
-                    var update_w = {
-                        x: [time],
-                        y: [load]
-                    };
-                    var update_a = {
-                        x: [time],
-                        y: [avgResponseTime],
-                        type: 'bar'
-                    };
                     var update_r = {
                         x: [time],
                         y: [replicasCount],
-                        type: 'bar'
                     };
-                    Plotly.update('workload-plot', update_w);
 
-                    Plotly.update('avgResponseTime-plot', update_a);
                     Plotly.update('replicas-plot', update_r);
 
                     setTimeout(requestData, 10000);
