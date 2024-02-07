@@ -6,6 +6,7 @@ from redis import Redis
 import threading
 import plotly.express as px
 import json
+import math
 
 redis = Redis(host='10.2.7.79', port=6379,decode_responses=True)
 start_time = time.time()
@@ -13,8 +14,8 @@ start_time = time.time()
 app = Flask(__name__)
 
 
-MONITOR_TIME = 30 # monitor response times over 20 seconds
-SCALE_UP_THRESHOLD = 15 # add more resources if response time > 15 seconds
+MONITOR_TIME = 20 # monitor response times over 20 seconds
+SCALE_UP_THRESHOLD = 10 # add more resources if response time > 15 seconds
 SCALE_DOWN_THRESHOLD = 5 # decrease resources if response time < 5 seconds
 MAX_REPLICAS = 15
 MIN_REPLICAS = 1
@@ -73,6 +74,7 @@ class Autoscaler:
         self.scale_down_threshold = scale_down_threshold
         self.max_replicas = max_replicas
         self.min_replicas = min_replicas
+        self.last_scale = 0
 
     def get_average_response_time(self):
         print("Getting average response time...")
@@ -84,7 +86,7 @@ class Autoscaler:
             t0 = time.time()
 
             try:
-                response = requests.get(self.service.get_url(), timeout=30) 
+                response = requests.get(self.service.get_url(), timeout=self.monitor_time) 
                 t1 = time.time()
                 response_time = t1 - t0
                 response_times.append(response_time)
@@ -92,7 +94,7 @@ class Autoscaler:
             except requests.exceptions.Timeout:
                 print("Request timed out.")
                 # treat as very long response time
-                return 30
+                return self.monitor_time
             except requests.exceptions.RequestException as e:
                 print(f"Request failed: {e}")
                 continue
@@ -103,34 +105,91 @@ class Autoscaler:
         print(f"Average Response Time over {MONITOR_TIME} seconds: {average_response_time}")
         return average_response_time
 
+    def redis_get_avg_response_time(self):
+        newest_value = redis.lindex('avg_response_t', 0)
+
+        if newest_value:
+            last_avg_t = float(newest_value)
+        else:
+            last_avg_t = 0
+        return last_avg_t
+
+    def get_scale_up_factor(self,average_response_time):
+        last_avg_t = self.redis_get_avg_response_time()
+        diff = last_avg_t - average_response_time
+
+        # if self.last_scale = 0: 
+        #     return 1
+        
+        # if self.last_scale > 0:
+        #     diff = average_response_time - last_avg_t
+            
+        #     # if diff > 0: # not improved at all (or for dramatic increase?)
+        #     #     scale = self.last_scale + 2
+        #     # else:
+        #     scale = self.last_scale + 1
+        # elif self.last_scale < 0:
+        #     scale = abs(math.ceil(diff/4))
+        # else:
+        #     scale = 1
+        scale = math.ceil(average_response_time/self.scale_up_threshold)
+        return scale
+
+    def get_scale_down_factor(self,average_response_time):
+        last_avg_t = self.redis_get_avg_response_time()
+        diff = last_avg_t - average_response_time
+
+
+        # if self.last_scale < 0:
+        #     # if diff > 0:
+        #     #     scale = self.last_scale -2
+        #     # else:
+        #     scale = self.last_scale -1
+        # elif self.last_scale < 0:
+        #     scale = -math.ceil(diff/4)
+        # else:
+        #     scale = -1
+        scale = -math.ceil(average_response_time/self.scale_down_threshold)
+        return scale
+
     def perform_scaling(self):
         average_response_time = self.get_average_response_time()
         current_replicas = self.service.get_current_replicas()
         new_replicas = current_replicas
-
+        scale = 0
 
             # we want to scale up and we can
-        if average_response_time > self.scale_up_threshold and current_replicas < self.max_replicas:
-            new_replicas = current_replicas + 1
+        if average_response_time >= self.scale_up_threshold and current_replicas < self.max_replicas:
+            scale = self.get_scale_up_factor(average_response_time)
+                
+            print("scale: ",scale)
+            print("last_scale:",self.last_scale)
+            new_replicas = min(current_replicas + scale, self.max_replicas)
             self.service.scale(new_replicas)
             print(f'Scaled up {self.service.get_name()} to {new_replicas} replicas.')
         
         # we want to scale up but we are at max
-        elif average_response_time > self.scale_up_threshold and current_replicas == self.max_replicas:
+        elif average_response_time >= self.scale_up_threshold and current_replicas == self.max_replicas:
             print("Reached max replicas can't scale up")
 
         # we want to scale down and we can
-        elif average_response_time < self.scale_down_threshold and current_replicas > self.min_replicas:
-            new_replicas = current_replicas - 1
+        elif average_response_time <= self.scale_down_threshold and current_replicas > self.min_replicas:
+            scale = self.get_scale_down_factor(average_response_time)
+
+            new_replicas = max(current_replicas + scale,self.min_replicas)
+            print("scale down to:to {new_replicas} replicas")
             self.service.scale(new_replicas)
             print(f'Scaled down {self.service.get_name()} to {new_replicas} replicas.')
 
-        elif average_response_time < self.scale_down_threshold and current_replicas == self.min_replicas:
+        elif average_response_time <= self.scale_down_threshold and current_replicas == self.min_replicas:
             print("Reached min replicas cant scale down")
         
         else:
             print(f'Did not scale {self.service.get_name()}. Response time within threshold')
         
+        print("scale: ",scale)
+        print("last_scale:",self.last_scale)
+        self.last_scale = scale
         # for the visualizer
         global tare
 
@@ -172,6 +231,9 @@ if __name__ == '__main__':
     redis.delete('avg_response_t')
     redis.delete('size')
     redis.delete('time_series') # maybe we could use a better time_series idk
+    
+    redis.lpush('size',current_replicas)
+    redis.lpush('time_series', 0)
     global tare
     tare = int(redis.get('hits'))
 
