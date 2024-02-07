@@ -19,7 +19,6 @@ def write_html():
 
     # Save the plot as an HTML file
     fig.write_html("plot.html")
-
 @app.route('/')
 def index():
     # Read the saved HTML file (plot.html) and render it
@@ -31,7 +30,7 @@ def index():
 def flask_app():
     app.run(host='0.0.0.0', port=5001)
 
-ef write_html():
+def write_html():
     # Generate some sample data (you'll replace this with your actual data)
     replicas_count = redis.lrange('size',0,-1)
     avg_response_time = redis.lrange('avg_response_t',0,-1)
