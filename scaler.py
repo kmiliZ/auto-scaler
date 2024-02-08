@@ -101,54 +101,14 @@ class Autoscaler:
     
             average_response_time = sum(response_times) / len(response_times)
 
-        # average_response_time = 1
         print(f"Average Response Time over {MONITOR_TIME} seconds: {average_response_time}")
         return average_response_time
 
-    def redis_get_avg_response_time(self):
-        newest_value = redis.lindex('avg_response_t', 0)
-
-        if newest_value:
-            last_avg_t = float(newest_value)
-        else:
-            last_avg_t = 0
-        return last_avg_t
-
     def get_scale_up_factor(self,average_response_time):
-        last_avg_t = self.redis_get_avg_response_time()
-        diff = last_avg_t - average_response_time
-
-        # if self.last_scale = 0: 
-        #     return 1
-        
-        # if self.last_scale > 0:
-        #     diff = average_response_time - last_avg_t
-            
-        #     # if diff > 0: # not improved at all (or for dramatic increase?)
-        #     #     scale = self.last_scale + 2
-        #     # else:
-        #     scale = self.last_scale + 1
-        # elif self.last_scale < 0:
-        #     scale = abs(math.ceil(diff/4))
-        # else:
-        #     scale = 1
         scale = math.ceil(average_response_time/self.scale_up_threshold)
         return scale
 
     def get_scale_down_factor(self,average_response_time):
-        last_avg_t = self.redis_get_avg_response_time()
-        diff = last_avg_t - average_response_time
-
-
-        # if self.last_scale < 0:
-        #     # if diff > 0:
-        #     #     scale = self.last_scale -2
-        #     # else:
-        #     scale = self.last_scale -1
-        # elif self.last_scale < 0:
-        #     scale = -math.ceil(diff/4)
-        # else:
-        #     scale = -1
         scale = -math.ceil(average_response_time/self.scale_down_threshold)
         return scale
 
@@ -161,9 +121,6 @@ class Autoscaler:
             # we want to scale up and we can
         if average_response_time >= self.scale_up_threshold and current_replicas < self.max_replicas:
             scale = self.get_scale_up_factor(average_response_time)
-                
-            print("scale: ",scale)
-            print("last_scale:",self.last_scale)
             new_replicas = min(current_replicas + scale, self.max_replicas)
             self.service.scale(new_replicas)
             print(f'Scaled up {self.service.get_name()} to {new_replicas} replicas.')
@@ -177,7 +134,6 @@ class Autoscaler:
             scale = self.get_scale_down_factor(average_response_time)
 
             new_replicas = max(current_replicas + scale,self.min_replicas)
-            print("scale down to:to {new_replicas} replicas")
             self.service.scale(new_replicas)
             print(f'Scaled down {self.service.get_name()} to {new_replicas} replicas.')
 
@@ -187,20 +143,9 @@ class Autoscaler:
         else:
             print(f'Did not scale {self.service.get_name()}. Response time within threshold')
         
-        print("scale: ",scale)
-        print("last_scale:",self.last_scale)
-        self.last_scale = scale
-        # for the visualizer
-        global tare
-
-        redis.lpush('avg_response_t', average_response_time)
+        # for the plot visualizer
         redis.lpush('size',new_replicas)
-
         redis.lpush('time_series', time.time()-start_time)
-        hits = int(redis.get('hits'))
-        redis.lpush('loads',hits - tare)
-        tare = hits
-
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -209,11 +154,9 @@ def index():
 @app.route('/data', methods=['GET', 'POST'])
 def data():
     replicas_count = redis.lrange('size',0,-1)
-    avg_response_time = redis.lrange('avg_response_t',0,-1)
-    load = redis.lrange('loads',0,-1)
     time_series = redis.lrange('time_series',0,-1)
 
-    data = [{'time':time_series ,'a':avg_response_time,'l':load,'r':replicas_count}]
+    data = [{'time':time_series ,'r':replicas_count}]
     response = make_response(json.dumps(data))
     response.content_type = 'application/json'
     return response
@@ -228,14 +171,11 @@ if __name__ == '__main__':
     print("Service url: ", web_service.get_url())
     autoscaler = Autoscaler(web_service, MONITOR_TIME, SCALE_UP_THRESHOLD, SCALE_DOWN_THRESHOLD, MAX_REPLICAS, MIN_REPLICAS)
     current_replicas = autoscaler.service.get_current_replicas()
-    redis.delete('avg_response_t')
     redis.delete('size')
     redis.delete('time_series') # maybe we could use a better time_series idk
     
     redis.lpush('size',current_replicas)
     redis.lpush('time_series', 0)
-    global tare
-    tare = int(redis.get('hits'))
 
 
     thread = threading.Thread(target = flask_app)
