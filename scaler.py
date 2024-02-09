@@ -116,7 +116,7 @@ class Autoscaler:
         return scale
 
     def get_scale_down_factor(self,average_response_time):
-        scale = -math.ceil(average_response_time/self.scale_down_threshold)
+        scale = -math.ceil(self.scale_down_threshold/average_response_time)
         return scale
 
     def perform_scaling(self):
