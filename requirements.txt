@@ -4,3 +4,4 @@ locust
 docker
 pandas 
 plotly
+python-dotenv
