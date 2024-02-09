@@ -190,4 +190,4 @@ if __name__ == '__main__':
 
     while True:
         autoscaler.perform_scaling()
-        time.sleep(5) # forthe scaling to finish
+        time.sleep(5) # for the scaling to finish
