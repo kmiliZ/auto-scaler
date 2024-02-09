@@ -27,7 +27,7 @@ function perform_scaling:
 
     elif average_response_time <= scale_down_threshold:
         if current_replicas > min_replicas:
-            scale = -(average_response_time / scale_down_threshold)
+            scale = -(scale_down_threshold / average_response_time)
             new_replicas = max(current_replicas + scale, min_replicas)
             service.scale(new_replicas)
             print "Scaled down service to new_replicas replicas."
