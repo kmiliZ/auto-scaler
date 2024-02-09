@@ -7,22 +7,29 @@ import threading
 import plotly.express as px
 import json
 import math
+from dotenv import load_dotenv
+import os
 
-redis = Redis(host='10.2.7.79', port=6379,decode_responses=True)
+# Load environment variables
+load_dotenv()
+
+# Use environment variables
+REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
+REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+WEB_SERVICE_URL = os.getenv('WEB_SERVICE_URL', 'http://127.0.0.1:8000/')
+WEB_SERVICE_ID = os.getenv('WEB_SERVICE_ID', 'default_id')
+SWARM_MANAGER_IP = os.getenv('SWARM_MANAGER_IP', '127.0.0.1')
+FLASK_PORT = os.getenv('FLASK_PORT', '5001')
+MONITOR_TIME = int(os.getenv('MONITOR_TIME', 30))
+SCALE_UP_THRESHOLD = int(os.getenv('SCALE_UP_THRESHOLD', 15))
+SCALE_DOWN_THRESHOLD = int(os.getenv('SCALE_DOWN_THRESHOLD', 5))
+MAX_REPLICAS = int(os.getenv('MAX_REPLICAS', 15))
+MIN_REPLICAS = int(os.getenv('MIN_REPLICAS', 1))
+
+redis = Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 start_time = time.time()
 
 app = Flask(__name__)
-
-
-MONITOR_TIME = 20 # monitor response times over 20 seconds
-SCALE_UP_THRESHOLD = 10 # add more resources if response time > 15 seconds
-SCALE_DOWN_THRESHOLD = 5 # decrease resources if response time < 5 seconds
-MAX_REPLICAS = 15
-MIN_REPLICAS = 1
-web_service_url = "http://10.2.7.79:8000/"
-web_service_id = "tjevoqetz0nd" # from sudo docker service ls we can see the ids
-swarm_manager_ip = '10.2.7.79'
-flask_port = '5001'
 
 class DockerClient:
     def __init__(self):
@@ -81,7 +88,7 @@ class Autoscaler:
         start_time = time.time()
         response_times = []
 
-        # while time elapsed is less than 20 seconds
+        # while time elapsed is less than monitor time
         while time.time() - start_time < self.monitor_time:
             t0 = time.time()
 
@@ -167,12 +174,12 @@ def flask_app():
 
 if __name__ == '__main__':
     docker_client = DockerClient()
-    web_service = Service(web_service_id, web_service_url, docker_client) 
+    web_service = Service(WEB_SERVICE_ID, WEB_SERVICE_URL, docker_client)  
     print("Service url: ", web_service.get_url())
     autoscaler = Autoscaler(web_service, MONITOR_TIME, SCALE_UP_THRESHOLD, SCALE_DOWN_THRESHOLD, MAX_REPLICAS, MIN_REPLICAS)
     current_replicas = autoscaler.service.get_current_replicas()
     redis.delete('size')
-    redis.delete('time_series') # maybe we could use a better time_series idk
+    redis.delete('time_series') 
     
     redis.lpush('size',current_replicas)
     redis.lpush('time_series', 0)
